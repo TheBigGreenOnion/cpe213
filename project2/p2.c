@@ -11,15 +11,7 @@
 #define PLAY_B5(delay) play_tone(delay, 0xC5, 0xB3)
 #define PLAY_C6(delay) play_tone(delay, 0xC9, 0x0A)
 #define PLAY_E6(delay) play_tone(delay, 0xD4, 0x5D)
-#define PLAY_BREATH(delay) play_tone(1, 0x00, 0x00)
-
-
-//playBreath:
-//0x00  
-//0x00
-//playREST:
-//0x00   
-//0x00
+#define PLAY_BREAK(delay) play_tone(delay, 0x00, 0x00)
 
 
 // Switches 0-8
@@ -89,7 +81,7 @@ void tim1_isr() interrupt 2
         TH1 = 0x00;
         TL1 = 0x01;
         TCON &= 0x50;   // Ensure timers are on
-        DELAY_REPS -= 1;
+        DELAY_REPS--;
     }
     return;
 }
@@ -138,7 +130,7 @@ void interrupt_init(void)
     BRGR0 = 0xF0; 
     BRGR1 = 0x02; 
     BRGCON = 0x03;
-    ES = 1;
+    ES = 0;
 }
 
 
@@ -150,7 +142,7 @@ void interrupt_init(void)
 //   32 => quarter
 //   Multiples of these can be extrapolated such as dotted notes
 //;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-    mov R0, #16
+/*    mov R0, #16
     acall playG5
     acall   playBreath
     mov R0, #16
@@ -207,7 +199,7 @@ void interrupt_init(void)
     acall playREST
     clr TR0
     clr C	//Set sentinel bit
-ret
+ret*/
 
 // play_tone
 // plays tone for duration * 0.0017 seconds...maybe?
@@ -217,8 +209,7 @@ void play_tone(char duration, char delay_h, char delay_l)
     SNDL = delay_l;
     TH0=delay_h;
     TL1=delay_l;
-    
-
+    TMOD &= 0x50;   // Turn on timers.
     return;
 }
 
@@ -237,7 +228,7 @@ void main(void)
     P2 = 0xFF;
     P1 ^ 6 = 0x1;
     P1 ^ 7 = 0x0;
-
+    interrupt_init();
     playtune();
     playgame();
 
