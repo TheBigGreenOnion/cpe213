@@ -3,15 +3,16 @@
 // Robert Higgins
 
 #include <whatever>
-//#define PLAY_NN(delay) play_tone(delay, TH, TL)
-// Global variables for timers
-char SNDH, SNDL;
 
+
+//#define PLAY_NN(delay) play_tone(delay, TH, TL)
 #define PLAY_G5(delay) play_tone(delay, 0xB6, 0x87)
 #define PLAY_A5(delay) play_tone(delay, 0xBE, 0x8B)
 #define PLAY_B5(delay) play_tone(delay, 0xC5, 0xB3)
 #define PLAY_C6(delay) play_tone(delay, 0xC9, 0x0A)
 #define PLAY_E6(delay) play_tone(delay, 0xD4, 0x5D)
+#define PLAY_BREATH(delay) play_tone(1, 0x00, 0x00)
+
 
 //playBreath:
 //0x00  
@@ -20,10 +21,6 @@ char SNDH, SNDL;
 //0x00   
 //0x00
 
-
-clr TR0     
-acall stall
-setb TR0    
 
 // Switches 0-8
 // Switch/LED layout: 
@@ -53,6 +50,12 @@ sbit led8 = P2 ^ 6;
 
 sbit spkr = P1 ^ 7;
 
+char SNDH, SNDL;    // High and low bytes of pitch generated with Timer 0
+int DELAY_REPS;     // 16 bit int for longer delays (measurable in seconds)
+
+char MSG1[] = "Hello, World!\0";
+char * MSG = MSG1;
+
 // Jump to Main/ISR functions as needed
 //;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 //   To that of certain notes in the playN# routines
@@ -60,9 +63,9 @@ sbit spkr = P1 ^ 7;
 void tim0_isr() interrupt 1
 {
     spkr = ~spkr;
-    TH0 = SNDH;
+    TH0 = SNDH;     // Since it is in non-resetting
     TL0 = SNDL;
-    TR1 = 1;
+    TR0 = 1;
     return;
 }
 
@@ -74,24 +77,21 @@ void tim0_isr() interrupt 1
 //;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 void tim1_isr() interrupt 2
 {
-    djnz R6, AGAIN 
-    ACTION:             //Decrement when something actually happens
-    	djnz R7, CYCLE  //otherwise just refresh R6
-	clr TR1             //Turn timer off when done flashing
-    reti
-
-    CYCLE:
-        mov R6, #100    //About 200 ms per flash on/off
-        xrl A, #0xFF
-        mov P0, A
-        mov P2, A
-        cpl P1.6      
-    AGAIN:      
-        mov TH1, #0x0b	//0.0017s
-        mov TL1, #0x32
-        
-	setb TR1
-    reti
+    if (DELAY_REPS == 0)
+    {
+        //ACTION! otherwise turn off speaker
+        // Done with action, stop timer 1 and 0
+        TCON &= ~0x50;
+    }
+    else
+    {
+        // ONE MORE TIME! Delay for.... A while
+        TH1 = 0x00;
+        TL1 = 0x01;
+        TCON &= 0x50;   // Ensure timers are on
+        DELAY_REPS -= 1;
+    }
+    return;
 }
 
 void serial_isr() interrupt 4
@@ -100,6 +100,13 @@ void serial_isr() interrupt 4
     {
         //transmit
         TI = 0;
+        SBUF = *MSG;
+        MSG++;
+        if (*MSG == '\0')
+        {
+            MSG = MSG1;
+            TI = 1;
+        }
     }
     else if (RI)
     {
@@ -109,49 +116,15 @@ void serial_isr() interrupt 4
     return;
 }
 
-//;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-//;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-void main(void)
-{
-    //Set all ports used to bidirectional
-    p0m1 = 0;
-    p1m1 = 0;
-    p2m1 = 0;
-
-//  Phillips 8051 has special onboard timer for scon, so t1 and t0 are free
-//  t0 controls frequency for tones
-//  t1 controls duration
-
-    //Initialize all LEDs/speaker off
-    P0 = 0xFF;
-    P2 = 0xFF;
-    P1 ^ 6 = 0x1;
-    P1 ^ 7 = 0x0;
-
-    mov IEN0, #0x8A
-    mov TCON, #0x11
-    
-    setb TR1
-    setb TR0
-
-    ;;//Flash LEDS 5 times in ~2 s
-    mov R7, #11     //5 * 2 + 1 for turn off
-    mov R6, #100
-    acall flash
-
-    ;;//Tune stuff
-    setb c          //Set C as sentinel to indicate music is playing
-    acall playTune
-    
+  
 void interrupt_init(void)
 {
-    //serial setup
-    PCON &= derp;
-    SCON = derp;
-    SSTAT = derp;
-
+    // Configure timers and 
+    IEN0 = 0x8A
+    TCON = 0x03
+    TMOD = 0x11
+    
     // configure UART 
-    // clear SMOD0 
     PCON &= ~0x40; 
     SCON = 0x50; 
     // set or clear SMOD1 
@@ -165,50 +138,8 @@ void interrupt_init(void)
     BRGR0 = 0xF0; 
     BRGR1 = 0x02; 
     BRGCON = 0x03;
-
+    ES = 1;
 }
-
-//;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-// Beep function
-//   Set timer and play quarternote beep to indicate error
-//;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-beep:	    
-    setb TR0
-    mov R0, #32
-    acall playB5 
-    acall playBreath
-    clr TR0
-ret
-
-//;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-// Flash:
-//   R6/R7 T=0.0017*R6   R7=iterations
-//;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-flash:       
-    mov TH1, #0x0b
-    mov TL1, #0x32
-    setb TR1
-ret
-
-//;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-// update LEDS
-//   Flip the bits of A for active low and use rotate to pick off the
-//   bits shifted down to LSB
-//;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;//  
-updateleds:
-    mov R0, A
-    cpl A
-    rrc A
-    mov P0.4, C
-    rrc A
-    mov P2.7, C
-    rrc A
-    mov P0.5, C
-    rrc A
-    mov P2.4, C
-    mov A, R0
-    clr C
-ret
 
 
 //;//Static routine to play La Cucaracha!
@@ -219,7 +150,6 @@ ret
 //   32 => quarter
 //   Multiples of these can be extrapolated such as dotted notes
 //;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-playTune:	    
     mov R0, #16
     acall playG5
     acall   playBreath
@@ -288,7 +218,28 @@ void play_tone(char duration, char delay_h, char delay_l)
     TH0=delay_h;
     TL1=delay_l;
     
+
     return;
 }
 
 
+//;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+//;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+void main(void)
+{
+    //Set all ports used to bidirectional
+    p0m1 = 0;
+    p1m1 = 0;
+    p2m1 = 0;
+
+    //Initialize all LEDs/speaker off
+    P0 = 0xFF;
+    P2 = 0xFF;
+    P1 ^ 6 = 0x1;
+    P1 ^ 7 = 0x0;
+
+    playtune();
+    playgame();
+
+    return;
+}
