@@ -37,7 +37,7 @@ sbit sw8 = P2 ^ 2;
 // LEDs 0-8
 sbit led0 = P2 ^ 4;
 sbit led1 = P0 ^ 5;
-bit led2 = P2 ^ 7;
+sbit led2 = P2 ^ 7;
 sbit led3 = P0 ^ 6;
 sbit led4 = P1 ^ 6;
 sbit led5 = P0 ^ 4;
